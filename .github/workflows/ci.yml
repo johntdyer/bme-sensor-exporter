@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches-ignore:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: Test and Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test -race ./...
+
+      - name: Build (local)
+        run: go build ./...
+
+      - name: Build check (linux/armv7)
+        run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null .
+
+      - name: Build check (linux/arm64)
+        run: GOOS=linux GOARCH=arm64 go build -o /dev/null .
