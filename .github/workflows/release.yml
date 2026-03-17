@@ -29,22 +29,27 @@ jobs:
       - name: Determine next version
         id: version
         run: |
-          # Get the latest semver tag, default to v0.0.0 if none exists
+          # Get the latest semver tag; default to v0.0.0 if none exists
           LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
           echo "Latest tag: ${LATEST_TAG}"
 
-          VERSION=${LATEST_TAG#v}
+          VERSION="${LATEST_TAG#v}"
           MAJOR=$(echo "$VERSION" | cut -d. -f1)
           MINOR=$(echo "$VERSION" | cut -d. -f2)
           PATCH=$(echo "$VERSION" | cut -d. -f3)
 
-          # Collect commit messages since the last tag
-          COMMITS=$(git log "${LATEST_TAG}..HEAD" --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
+          # Collect commit subjects since the last tag.
+          # If LATEST_TAG doesn't exist in the repo (e.g. v0.0.0 default), fall back to all commits.
+          if git rev-parse "${LATEST_TAG}" >/dev/null 2>&1; then
+            COMMITS=$(git log "${LATEST_TAG}..HEAD" --pretty=format:"%s")
+          else
+            COMMITS=$(git log --pretty=format:"%s")
+          fi
 
-          # Determine bump level using conventional commits:
-          #   BREAKING CHANGE or feat!: -> major
-          #   feat:                     -> minor
-          #   fix: / chore: / etc.      -> patch
+          # Bump rules (Conventional Commits):
+          #   BREAKING CHANGE or <type>!:  -> major
+          #   feat:                        -> minor
+          #   anything else                -> patch
           if echo "$COMMITS" | grep -qE "^(feat|fix|refactor|perf|chore)(\(.+\))?!:|^BREAKING CHANGE"; then
             MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
           elif echo "$COMMITS" | grep -qE "^feat(\(.+\))?:"; then
@@ -58,9 +63,10 @@ jobs:
           echo "tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Build release artifacts
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           mkdir -p dist
-          TAG=${{ steps.version.outputs.tag }}
 
           GOOS=linux GOARCH=arm GOARM=7 go build \
             -trimpath \
@@ -74,22 +80,23 @@ jobs:
             -o "dist/bme-sensor-exporter-${TAG}-linux-arm64" \
             .
 
-          cd dist && sha256sum ./* > checksums.txt
+          sha256sum dist/bme-sensor-exporter-* > dist/checksums.txt
 
       - name: Create and push tag
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Release ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
-          files: |
-            dist/bme-sensor-exporter-${{ steps.version.outputs.tag }}-linux-armv7
-            dist/bme-sensor-exporter-${{ steps.version.outputs.tag }}-linux-arm64
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "${TAG}" \
+            --title "Release ${TAG}" \
+            --generate-notes \
+            dist/bme-sensor-exporter-${TAG}-linux-armv7 \
+            dist/bme-sensor-exporter-${TAG}-linux-arm64 \
             dist/checksums.txt
