@@ -1,0 +1,12 @@
+[Unit]
+Description=BME280 Prometheus Exporter
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/bme-sensor-exporter --i2c-device=/dev/i2c-4
+Restart=on-failure
+User=nobody
+SupplementaryGroups=i2c
+
+[Install]
+WantedBy=multi-user.target
