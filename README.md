@@ -38,7 +38,7 @@ scrape_configs:
 Add a scrape component to your Alloy config:
 
 ```alloy
-prometheus.scrape "bme280" {
+discovery.relabel "bme280" {
   targets = [
     {
       __address__ = "raspberrypi.local:9100",
@@ -46,6 +46,14 @@ prometheus.scrape "bme280" {
     },
   ]
 
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+}
+
+prometheus.scrape "bme280" {
+  targets    = discovery.relabel.bme280.output
   forward_to = [prometheus.remote_write.default.receiver]
 }
 
