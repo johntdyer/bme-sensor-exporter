@@ -16,4 +16,6 @@ require (
 	golang.org/x/exp v0.0.0-20260312153236-7ab1446f8b90 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
+	periph.io/x/conn/v3 v3.7.2 // indirect
+	periph.io/x/host/v3 v3.8.5 // indirect
 )
