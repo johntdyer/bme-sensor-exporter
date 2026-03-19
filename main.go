@@ -8,22 +8,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/quhar/bme280"
+	"github.com/warthog618/go-gpiocdev"
 	"golang.org/x/exp/io/i2c"
-	"periph.io/x/conn/v3/gpio/gpioreg"
-	"periph.io/x/host/v3"
 )
 
 func main() {
 	addr         := flag.String("listen-address", ":9100", "Address to listen on for HTTP requests")
 	dev          := flag.String("i2c-device", "/dev/i2c-4", "I2C device path")
-	tachPin      := flag.String("tach-pin", "GPIO13", "GPIO pin name for fan tachometer (BCM numbering, e.g. GPIO13)")
+	gpioChip     := flag.String("gpio-chip", "gpiochip0", "GPIO chip for fan tachometer (gpiochip0 on Pi 5, check ls /dev/gpiochip*)")
+	tachPin      := flag.String("tach-pin", "GPIO13", "GPIO pin for fan tachometer (BCM name e.g. GPIO13, or bare offset e.g. 13)")
 	pulsesPerRev := flag.Int("tach-pulses", 2, "Tachometer pulses per fan revolution (2 for most Noctua fans)")
+	gpioPins     := flag.String("gpio-pins", "", "Comma-separated GPIO pins to monitor via pinctrl (e.g. GPIO17:up,GPIO18:down,GPIO27)")
 	flag.Parse()
-
-	// Initialise periph.io host drivers (GPIO, I2C, SPI, etc.)
-	if _, err := host.Init(); err != nil {
-		log.Fatalf("failed to initialise periph.io host: %v", err)
-	}
 
 	d, err := i2c.Open(&i2c.Devfs{Dev: *dev}, bme280.I2CAddr)
 	if err != nil {
@@ -35,12 +31,18 @@ func main() {
 		log.Fatalf("failed to initialize BME280: %v", err)
 	}
 
-	pin := gpioreg.ByName(*tachPin)
-	if pin == nil {
-		log.Fatalf("GPIO pin %q not found — check --tach-pin and ensure I2C/GPIO are enabled", *tachPin)
+	chip, err := gpiocdev.NewChip(*gpioChip, gpiocdev.WithConsumer("bme-sensor-exporter"))
+	if err != nil {
+		log.Fatalf("failed to open GPIO chip %s: %v\n(run 'ls -la /dev/gpiochip*' on the Pi to find the right chip)", *gpioChip, err)
+	}
+	defer chip.Close()
+
+	tachOffset, err := parsePinOffset(*tachPin)
+	if err != nil {
+		log.Fatalf("invalid --tach-pin %q: %v", *tachPin, err)
 	}
 
-	tach, err := newFanTach(pin, *pulsesPerRev)
+	tach, err := newFanTach(chip, tachOffset, *pulsesPerRev)
 	if err != nil {
 		log.Fatalf("failed to set up fan tachometer on %s: %v", *tachPin, err)
 	}
@@ -49,6 +51,14 @@ func main() {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(newCollector(b))
 	reg.MustRegister(newFanCollector(tach))
+
+	if *gpioPins != "" {
+		gpioCol, err := newGPIOCollector(*gpioPins)
+		if err != nil {
+			log.Fatalf("failed to set up GPIO pin monitor: %v", err)
+		}
+		reg.MustRegister(gpioCol)
+	}
 
 	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	log.Printf("Listening on %s", *addr)

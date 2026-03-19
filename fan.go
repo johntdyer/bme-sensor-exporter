@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"periph.io/x/conn/v3/gpio"
+	"github.com/warthog618/go-gpiocdev"
 )
 
 const (
@@ -13,69 +13,58 @@ const (
 	staleDuration    = 2 * time.Second      // report 0 RPM if no pulse seen within this window
 )
 
-// fanTach monitors a GPIO tachometer pin and tracks the current fan RPM.
-// It counts falling-edge pulses and derives RPM from inter-pulse timing,
-// matching the behaviour of the reference Noctua Python snippet.
+// fanTach monitors a tachometer GPIO pin and tracks the current fan RPM.
+// gpiocdev delivers edge events via the kernel's GPIO character device ioctl
+// interface, which handles hundreds of edges per second — unlike periph.io's
+// sysfs backend which is capped at ~4 Hz.
 type fanTach struct {
-	pin           gpio.PinIn
-	pulsesPerRev  int
-	mu            sync.RWMutex
-	rpm           float64
-	lastPulse     time.Time
-	done          chan struct{}
-	wg            sync.WaitGroup
+	line         *gpiocdev.Line
+	pulsesPerRev int
+	mu           sync.RWMutex
+	rpm          float64
+	lastPulse    time.Time
+	prevEdge     time.Time
 }
 
-func newFanTach(pin gpio.PinIn, pulsesPerRev int) (*fanTach, error) {
-	if err := pin.In(gpio.PullUp, gpio.FallingEdge); err != nil {
+func newFanTach(chip *gpiocdev.Chip, pinOffset, pulsesPerRev int) (*fanTach, error) {
+	f := &fanTach{pulsesPerRev: pulsesPerRev}
+
+	line, err := chip.RequestLine(pinOffset,
+		gpiocdev.AsInput,
+		gpiocdev.WithPullUp,
+		gpiocdev.WithFallingEdge,
+		gpiocdev.WithEventHandler(f.handleEdge),
+	)
+	if err != nil {
 		return nil, err
 	}
-	f := &fanTach{
-		pin:          pin,
-		pulsesPerRev: pulsesPerRev,
-		done:         make(chan struct{}),
-	}
-	f.wg.Add(1)
-	go f.count()
+	f.line = line
 	return f, nil
 }
 
-// count runs in a goroutine, waiting for falling edges and computing RPM
-// from the time elapsed between consecutive pulses.
-func (f *fanTach) count() {
-	defer f.wg.Done()
-	last := time.Now()
-	for {
-		select {
-		case <-f.done:
-			return
-		default:
-		}
+func (f *fanTach) handleEdge(_ gpiocdev.LineEvent) {
+	now := time.Now()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 
-		if !f.pin.WaitForEdge(100 * time.Millisecond) {
-			continue // timeout — loop and check done channel
-		}
-
-		now := time.Now()
-		dt := now.Sub(last)
-		if dt < minPulseInterval {
-			continue // reject spurious pulse
-		}
-
-		freq := 1.0 / dt.Seconds()
-		rpm := (freq / float64(f.pulsesPerRev)) * 60
-
-		f.mu.Lock()
-		f.rpm = rpm
-		f.lastPulse = now
-		f.mu.Unlock()
-
-		last = now
+	if f.prevEdge.IsZero() {
+		f.prevEdge = now
+		return
 	}
+
+	dt := now.Sub(f.prevEdge)
+	if dt < minPulseInterval {
+		return // reject spurious pulse
+	}
+
+	freq := 1.0 / dt.Seconds()
+	f.rpm = (freq / float64(f.pulsesPerRev)) * 60
+	f.lastPulse = now
+	f.prevEdge = now
 }
 
-// RPM returns the most recently computed fan speed in RPM.
-// Returns 0 if no pulse has been seen within staleDuration.
+// RPM returns the most recently computed fan speed.
+// Returns 0 if no pulse has been seen within staleDuration (fan stopped).
 func (f *fanTach) RPM() float64 {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -85,10 +74,8 @@ func (f *fanTach) RPM() float64 {
 	return f.rpm
 }
 
-// Close stops the background goroutine.
 func (f *fanTach) Close() {
-	close(f.done)
-	f.wg.Wait()
+	f.line.Close()
 }
 
 // fanCollector is a prometheus.Collector that exposes fan RPM.
