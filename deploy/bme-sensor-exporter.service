@@ -1,0 +1,30 @@
+[Unit]
+Description=BME280 Sensor Prometheus Exporter
+After=network.target
+
+[Service]
+Type=simple
+User=bme-exporter
+Group=bme-exporter
+SupplementaryGroups=gpio i2c
+
+ExecStart=/usr/local/bin/bme-sensor-exporter \
+    --listen-address=:9100 \
+    --i2c-device=/dev/i2c-4 \
+    --gpio-pins=GPIO6,GPIO7 \
+    --tach-pin=GPIO13
+
+Restart=on-failure
+RestartSec=5
+
+# Harden the service
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+DevicePolicy=closed
+DeviceAllow=/dev/i2c-1 rw
+DeviceAllow=char-gpio rw
+
+[Install]
+WantedBy=multi-user.target
