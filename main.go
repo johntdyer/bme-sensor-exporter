@@ -18,6 +18,7 @@ func main() {
 	dev          := flag.String("i2c-device", "/dev/i2c-4", "I2C device path")
 	tachPin      := flag.String("tach-pin", "GPIO13", "GPIO pin name for fan tachometer (BCM numbering, e.g. GPIO13)")
 	pulsesPerRev := flag.Int("tach-pulses", 2, "Tachometer pulses per fan revolution (2 for most Noctua fans)")
+	gpioPins     := flag.String("gpio-pins", "", "Comma-separated GPIO pins to monitor, with optional pull direction (e.g. GPIO17:up,GPIO18:down,GPIO27)")
 	flag.Parse()
 
 	// Initialise periph.io host drivers (GPIO, I2C, SPI, etc.)
@@ -49,6 +50,14 @@ func main() {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(newCollector(b))
 	reg.MustRegister(newFanCollector(tach))
+
+	if *gpioPins != "" {
+		gpioCol, err := newGPIOCollector(*gpioPins)
+		if err != nil {
+			log.Fatalf("failed to set up GPIO pin monitor: %v", err)
+		}
+		reg.MustRegister(gpioCol)
+	}
 
 	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	log.Printf("Listening on %s", *addr)
