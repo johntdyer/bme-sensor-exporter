@@ -9,6 +9,7 @@ Prometheus metrics exporter for the BME280 temperature, humidity, and pressure s
 | `bme280_temperature_celsius` | Temperature in Celsius |
 | `bme280_pressure_hpa` | Atmospheric pressure in hPa |
 | `bme280_humidity_percent` | Relative humidity in percent |
+| `gps_used_satellites` | Number of satellites used in GPS fix (optional) |
 
 ## Flags
 
@@ -16,6 +17,7 @@ Prometheus metrics exporter for the BME280 temperature, humidity, and pressure s
 |---|---|---|
 | `--listen-address` | `:9100` | Address to listen on for HTTP requests |
 | `--i2c-device` | `/dev/i2c-4` | I2C device path |
+| `--gps-sat-count` | `false` | Enable `gps_used_satellites` metric by reading `gpspipe` output |
 
 ## Collecting Metrics
 

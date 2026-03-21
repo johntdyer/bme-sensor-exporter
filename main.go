@@ -13,12 +13,13 @@ import (
 )
 
 func main() {
-	addr         := flag.String("listen-address", ":9100", "Address to listen on for HTTP requests")
-	dev          := flag.String("i2c-device", "/dev/i2c-4", "I2C device path")
-	gpioChip     := flag.String("gpio-chip", "gpiochip0", "GPIO chip for fan tachometer (gpiochip0 on Pi 5, check ls /dev/gpiochip*)")
-	tachPin      := flag.String("tach-pin", "GPIO13", "GPIO pin for fan tachometer (BCM name e.g. GPIO13, or bare offset e.g. 13)")
+	addr := flag.String("listen-address", ":9100", "Address to listen on for HTTP requests")
+	dev := flag.String("i2c-device", "/dev/i2c-4", "I2C device path")
+	gpioChip := flag.String("gpio-chip", "gpiochip0", "GPIO chip for fan tachometer (gpiochip0 on Pi 5, check ls /dev/gpiochip*)")
+	tachPin := flag.String("tach-pin", "GPIO13", "GPIO pin for fan tachometer (BCM name e.g. GPIO13, or bare offset e.g. 13)")
 	pulsesPerRev := flag.Int("tach-pulses", 2, "Tachometer pulses per fan revolution (2 for most Noctua fans)")
-	gpioPins     := flag.String("gpio-pins", "", "Comma-separated GPIO pins to monitor via pinctrl (e.g. GPIO17:up,GPIO18:down,GPIO27)")
+	gpioPins := flag.String("gpio-pins", "", "Comma-separated GPIO pins to monitor via pinctrl (e.g. GPIO17:up,GPIO18:down,GPIO27)")
+	gpsSatCount := flag.Bool("gps-sat-count", false, "Enable GPS used satellite count metric via gpspipe")
 	flag.Parse()
 
 	d, err := i2c.Open(&i2c.Devfs{Dev: *dev}, bme280.I2CAddr)
@@ -58,6 +59,12 @@ func main() {
 			log.Fatalf("failed to set up GPIO pin monitor: %v", err)
 		}
 		reg.MustRegister(gpioCol)
+	}
+
+	if *gpsSatCount {
+		gpsCol := newGPSSatCollector("/usr/bin/gpspipe", 4)
+		gpsCol.start()
+		reg.MustRegister(gpsCol)
 	}
 
 	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
