@@ -20,9 +20,10 @@ func main() {
 	pulsesPerRev := flag.Int("tach-pulses", 2, "Tachometer pulses per fan revolution (2 for most Noctua fans)")
 	gpioPins := flag.String("gpio-pins", "", "Comma-separated GPIO pins to monitor via pinctrl (e.g. GPIO17:up,GPIO18:down,GPIO27)")
 	gpsSatCount := flag.Bool("gps-sat-count", false, "Enable GPS used satellite count metric via gpspipe")
+	i2cAddr := flag.Int("i2c-addr", bme280.I2CAddr, "I2C address of the BME280 sensor (0x76 or 0x77)")
 	flag.Parse()
 
-	d, err := i2c.Open(&i2c.Devfs{Dev: *dev}, bme280.I2CAddr)
+	d, err := i2c.Open(&i2c.Devfs{Dev: *dev}, *i2cAddr)
 	if err != nil {
 		log.Fatalf("failed to open I2C device %s: %v", *dev, err)
 	}
